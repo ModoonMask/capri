@@ -153,6 +153,8 @@ class CapriApp(QApplication):
             return
         if not self.cfg.section("autonomy").get("enabled", True):
             return
+        if self.engine.client.in_cooldown():
+            return  # provider just rate-limited us; don't ping it again for fun
         if self.chat_window.is_busy():
             return
         self._last_activity = time.time()

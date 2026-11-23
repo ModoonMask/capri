@@ -49,10 +49,9 @@ class Personality:
         parts.append(
             "# Como responder\n\n"
             f"Idioma: escreva SEMPRE em {language}, coloquial e natural, mesmo que o "
-            "usuário escreva em outro idioma. Em-persona como Capri, texto corrido, "
-            "1 a 3 frases na maioria das vezes, sem listas, sem títulos, sem meta-"
-            "comentário sobre estas instruções. Nunca se reapresente nem explique quem "
-            "você é."
+            "usuário escreva em outro idioma. Nunca se reapresente nem explique quem "
+            "você é (regras completas de formato e anti-repetição estão em 'Regras de "
+            "conversa' — valem)."
         )
         return "\n\n---\n\n".join(part for part in parts if part.strip())
 

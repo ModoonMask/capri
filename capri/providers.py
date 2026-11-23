@@ -21,6 +21,8 @@ from .config import PROVIDER_PRESETS
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 MAX_RETRIES = 3
 REQUEST_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+DEFAULT_429_COOLDOWN_SEC = 20.0
+MAX_COOLDOWN_WAIT_SEC = 30.0
 
 
 class ProviderError(RuntimeError):
@@ -73,9 +75,22 @@ class LLMClient:
         self.base_url = base_url.rstrip("/")
         self.extra_headers = extra_headers or {}
         self._client = httpx.Client(timeout=REQUEST_TIMEOUT, transport=transport)
+        self._cooldown_until = 0.0
 
     def close(self) -> None:
         self._client.close()
+
+    # ---- TPM safety: reactive cooldown after any 429 ----------------------
+    def in_cooldown(self) -> bool:
+        return time.time() < self._cooldown_until
+
+    def _throttle(self) -> None:
+        wait = self._cooldown_until - time.time()
+        if wait > 0:
+            time.sleep(min(wait, MAX_COOLDOWN_WAIT_SEC))
+
+    def _penalize_429(self, retry_after: float | None = None) -> None:
+        self._cooldown_until = time.time() + (retry_after or DEFAULT_429_COOLDOWN_SEC)
 
     # ---- core ------------------------------------------------------------
     def _headers(self) -> dict[str, str]:
@@ -102,6 +117,7 @@ class LLMClient:
     def _request_with_retries(self, payload: dict[str, Any]) -> httpx.Response:
         last_error: Exception | None = None
         for attempt in range(MAX_RETRIES):
+            self._throttle()
             try:
                 resp = self._client.post(self._url(), json=payload, headers=self._headers())
             except httpx.HTTPError as exc:
@@ -117,8 +133,10 @@ class LLMClient:
                 f"{self.provider} returned {resp.status_code}: {_error_text(resp)}",
                 status=resp.status_code,
             )
+            if resp.status_code == 429:
+                self._penalize_429(retry_after)
             if err.retryable and attempt < MAX_RETRIES - 1:
-                time.sleep(retry_after or 1.5 ** attempt)
+                time.sleep(retry_after if retry_after else 1.5 ** attempt)
                 last_error = err
                 continue
             raise err
@@ -141,17 +159,21 @@ class LLMClient:
         payload = self._payload(messages, True, temperature, max_tokens)
         attempt = 0
         while True:
+            self._throttle()
             try:
                 with self._client.stream("POST", self._url(), json=payload,
                                          headers=self._headers()) as resp:
                     if resp.status_code != 200:
+                        retry_after = _retry_after_seconds(resp)
                         body = resp.read().decode("utf-8", "replace")
                         err = ProviderError(
                             f"{self.provider} returned {resp.status_code}: "
                             f"{_error_text_from(body)}", status=resp.status_code)
+                        if resp.status_code == 429:
+                            self._penalize_429(retry_after)
                         if err.retryable and attempt < MAX_RETRIES - 1:
                             attempt += 1
-                            time.sleep(_retry_after_from(body) or (1.5 ** attempt))
+                            time.sleep(retry_after or (1.5 ** attempt))
                             continue
                         raise err
                     yield from _iter_sse_deltas(resp)
@@ -206,10 +228,6 @@ def _retry_after_seconds(resp: httpx.Response) -> float | None:
         except ValueError:
             continue
     return None
-
-
-def _retry_after_from(body: str) -> float | None:
-    return None  # headers were consumed by the stream context; fall back to backoff
 
 
 def make_client(cfg) -> LLMClient:

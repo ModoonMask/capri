@@ -153,24 +153,37 @@ class MemoryManager:
 
     # ---- retrieval ----------------------------------------------------------
     def relevant_memories(self, user_message: str, char_budget: int = 2500,
-                          now: float | None = None) -> str:
-        """Score and assemble the most relevant memory context for a turn."""
+                          now: float | None = None, debug_note: list | None = None) -> str:
+        """Score and assemble the most relevant memory context for a turn.
+
+        When a section outgrows its budget the LOWEST-scored lines are left
+        out of the PROMPT only; nothing is ever removed from the files on
+        disk. If debug_note is a list, omissions are reported into it.
+        """
         now = now if now is not None else time.time()
+        query_tokens = tokenize(user_message)
         sections: list[tuple[str, str]] = []
 
-        user_md = self.read("user").strip()
-        if user_md:
-            sections.append(("About the user", _strip_heading(user_md)))
+        user_budget = self._per_section_budget(query_tokens, 800)
+        user_lines = _fit_lines(self.read("user"), self._user_line_score,
+                                user_budget, now, query_tokens,
+                                note=("user.md", debug_note))
+        if user_lines:
+            sections.append(("About the user", user_lines))
 
-        rel_md = self.read("relationship").strip()
-        if rel_md:
-            sections.append(("Relationship", _tail(_strip_heading(rel_md), 1200)))
+        rel_budget = self._per_section_budget(query_tokens, 800)
+        rel_lines = _fit_lines(self.read("relationship"), self._chronological_line_score,
+                               rel_budget, now, query_tokens,
+                               note=("relationship.md", debug_note))
+        if rel_lines:
+            sections.append(("Relationship", rel_lines))
 
-        core_md = self.read("memories").strip()
-        if core_md:
-            sections.append(("Long-term memories", _tail(_strip_heading(core_md), 1200)))
-
-        query_tokens = tokenize(user_message)
+        core_budget = self._per_section_budget(query_tokens, 800)
+        core_lines = _fit_lines(self.read("memories"), self._chronological_line_score,
+                                core_budget, now, query_tokens,
+                                note=("memories.md", debug_note))
+        if core_lines:
+            sections.append(("Long-term memories", core_lines))
         scored = self._score_episodes(query_tokens, user_message, now)
         picked: list[Episode] = []
         used = sum(len(s) + 30 for _, s in sections)
@@ -185,6 +198,18 @@ class MemoryManager:
 
         rendered = "\n\n".join(f"### {title}\n{body}" for title, body in sections if body.strip())
         return rendered.strip()
+
+    # memory line scoring helpers (retrieval only; storage never touched)
+    def _per_section_budget(self, query_tokens: set[str], base: int) -> int:
+        return base
+
+    def _user_line_score(self, line: str, query_tokens: set[str], now: float) -> float:
+        # user.md: "most important up top" -> earlier lines win ties
+        return len(query_tokens & tokenize(line)) * 3.0 + 1.0
+
+    def _chronological_line_score(self, line: str, query_tokens: set[str], now: float) -> float:
+        # append-style files: newer lines live lower -> slight recency weight
+        return len(query_tokens & tokenize(line)) * 3.0 + 0.5
 
     def _score_episodes(self, query_tokens: set[str], raw_message: str, now: float) -> list[Episode]:
         eps = self.episodes()
@@ -202,7 +227,7 @@ class MemoryManager:
                 continue  # stale and unrelated: don't pad the prompt
             scored.append((score, ep))
         scored.sort(key=lambda pair: (-pair[0], -pair[1].ts))
-        return [ep for _, ep in scored[:12]]
+        return [ep for _, ep in scored[:8]]
 
     # ---- selective updating -------------------------------------------------
     def apply_extraction(self, extraction: dict[str, Any]) -> list[str]:
@@ -266,6 +291,45 @@ def _add_unique_line(current_text: str, path: Path, fact: str) -> bool:
     with path.open("a", encoding="utf-8") as f:
         f.write(f"- {fact}\n")
     return True
+
+
+def _fit_lines(text: str, scorer, budget: int, now: float,
+               query_tokens: set[str] | None = None, note: tuple | None = None) -> str:
+    """Keep the highest-scoring lines of a memory file inside `budget`.
+
+    Only affects which lines enter the PROMPT; the file on disk is untouched.
+    `note` = (file_name, debug_note_list) receives a report of omissions.
+    """
+    import sys
+    body = _strip_heading(text)
+    lines = [ln for ln in body.splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    query_tokens = query_tokens or set()
+    rendered = "\n".join(lines)
+    if len(rendered) <= budget:
+        return rendered
+
+    scored = [(scorer(ln, query_tokens, now), i, ln) for i, ln in enumerate(lines)]
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    kept: list[tuple[int, str]] = []
+    used = 0
+    for score, i, ln in scored:
+        if used + len(ln) > budget and kept:
+            continue
+        kept.append((i, ln))
+        used += len(ln) + 1
+    kept.sort(key=lambda t: t[0])
+    omitted = len(lines) - len(kept)
+    if omitted:
+        if note is not None:
+            name, sink = note
+            if sink is not None:
+                sink.append(f"{name}: {omitted} old/unrelated line(s) not included in this prompt (still on disk)")
+        print(f"[capri] memory prompt: {note[0]} - {omitted} lines omitted from context "
+              f"(nothing deleted from disk)", file=sys.stderr)
+    prefix = "…\n" if omitted else ""
+    return prefix + "\n".join(ln for _, ln in kept)
 
 
 def _strip_heading(text: str) -> str:

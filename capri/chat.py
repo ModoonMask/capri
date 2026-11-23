@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import traceback
 from pathlib import Path
 from typing import Iterator
@@ -58,6 +59,7 @@ class ChatController:
         self.emotion = EmotionState(self.data_dir / "memory" / "state.json")
         self.history = ConversationLog(self.data_dir)
         self.client = client or make_client(cfg)
+        self._last_extract_at = 0.0
 
     # ---- main turn -------------------------------------------------------
     def memory_context(self, user_message: str) -> str:
@@ -77,13 +79,13 @@ class ChatController:
             recent_openers=self._recent_openers(),
         )
 
-    def _recent_openers(self, n: int = 5) -> list[str]:
+    def _recent_openers(self, n: int = 4) -> list[str]:
         """First line of her last n replies - context for anti-repetition."""
         openers: list[str] = []
         for entry in reversed(self.history.entries):
             if entry["role"] != "assistant":
                 continue
-            first = entry["content"].strip().split("\n")[0][:80]
+            first = entry["content"].strip().split("\n")[0][:60]
             if first:
                 openers.append(first)
             if len(openers) >= n:
@@ -97,7 +99,10 @@ class ChatController:
 
         prompt = self.build_prompt(user_message)
         hist_cfg = self.cfg.section("context")
-        history = self.history.window(int(hist_cfg.get("max_history_messages", 24)) - 1)
+        history = self.history.window(
+            int(hist_cfg.get("max_history_messages", 30)) - 1,
+            max_chars=int(hist_cfg.get("history_char_budget", 3000)),
+        )
         messages = [Message("system", prompt), *history, user(user_message)]
 
         self.history.append("user", user_message)
@@ -110,10 +115,22 @@ class ChatController:
         full_reply = "".join(collected).strip()
         if full_reply:
             self.history.append("assistant", full_reply)
-            threading.Thread(
-                target=self._post_turn, args=(user_message, full_reply),
-                daemon=True, name="capri-memory-extract",
-            ).start()
+            if self._should_extract(user_message, full_reply):
+                self._last_extract_at = time.time()
+                threading.Thread(
+                    target=self._post_turn, args=(user_message, full_reply),
+                    daemon=True, name="capri-memory-extract",
+                ).start()
+
+    def _should_extract(self, user_message: str, reply: str) -> bool:
+        """Token discipline for the extraction call: skip trivial chat, and
+        never fire more than once per configured interval. Meaningful content
+        waits at most one interval; nothing on disk is ever dropped."""
+        if len(user_message.strip()) < 15 and len(reply.strip()) < 15:
+            return False
+        min_interval = float(self.cfg.section("context").get(
+            "memory_extract_min_interval_seconds", 90))
+        return (time.time() - self._last_extract_at) >= min_interval
 
     def respond_autonomous(self, kind: str, instruction: str) -> Iterator[str]:
         """Capri initiates: stream a proactive message the user never asked for."""
@@ -162,7 +179,7 @@ class ChatController:
                 cur_state=cur_state,
                 cur_intensity=cur_intensity,
             )
-            raw = self.client.generate([Message("system", prompt)], temperature=0.2, max_tokens=400)
+            raw = self.client.generate([Message("system", prompt)], temperature=0.2, max_tokens=300)
             return _parse_extraction_json(raw)
         except Exception:
             return None

@@ -54,7 +54,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "model": "",             # empty = first preset model of the provider
     "language": "pt-BR",     # chat language, e.g. "pt-BR", "English"
     "temperature": 0.9,
-    "max_tokens": 512,
+    "max_tokens": 320,
     "stream": True,
     "appearance": {
         "accent": "#ff4f8b",
@@ -72,7 +72,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "context": {
         "max_history_messages": 30,
+        "history_char_budget": 3000,
         "memory_char_budget": 2500,
+        "memory_extract_min_interval_seconds": 90,
     },
 }
 

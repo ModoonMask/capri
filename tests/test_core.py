@@ -335,7 +335,8 @@ class TestChatController:
         prompt = engine.build_prompt("about that windows reinstall")
         assert "playful" in prompt
         assert "reinstalling Windows" in prompt
-        assert "Capri" in prompt
+        assert "pt-BR" in prompt
+        assert "Nunca se reapresente" in prompt
 
     def test_extraction_applied_after_turn(self, tmp_home):
         cfg = make_config(tmp_home)
@@ -444,3 +445,124 @@ class TestExtractionParsing:
         assert obj is not None and "mood" not in obj
         obj = _parse_extraction_json('{"mood": {"state": "jealous", "intensity": 9}}')
         assert obj is not None and obj["mood"] == {"state": "jealous", "intensity": 1.0}
+
+
+# ---------------------------------------------------------------------------
+# token-budget / rate-limit handling
+# ---------------------------------------------------------------------------
+class TestHistoryWindowBudget:
+    def test_char_budget_keeps_recent_and_drops_old(self, tmp_home):
+        log = ConversationLog(tmp_home)
+        log.append("user", "x" * 4000)
+        log.append("assistant", "y" * 2000)
+        log.append("user", "nova mensagem curta")
+        window = log.window(30, max_chars=3000)
+        roles = [w["role"] for w in window]
+        assert roles == ["assistant", "user"]
+        assert window[-1]["content"] == "nova mensagem curta"
+
+    def test_window_always_returns_at_least_one_message(self, tmp_home):
+        log = ConversationLog(tmp_home)
+        log.append("user", "z" * 9000)
+        window = log.window(10, max_chars=100)
+        assert len(window) == 1
+
+    def test_full_log_untouched_after_window(self, tmp_home):
+        log = ConversationLog(tmp_home)
+        for i in range(10):
+            log.append("user", f"msg {i} " + "data " * 300)
+        log.window(30, max_chars=1000)
+        assert len(log.entries) == 10
+
+
+class TestExtractionThrottle:
+    def make_engine(self, tmp_home):
+        cfg = make_config(tmp_home)
+        return ChatController(cfg, client=FakeClient(), data_dir_override=tmp_home / "data")
+
+    def test_smalltalk_skips_extraction(self, tmp_home):
+        engine = self.make_engine(tmp_home)
+        assert engine._should_extract("oi", "oi :)") is False
+
+    def test_min_interval_enforced(self, tmp_home, monkeypatch):
+        engine = self.make_engine(tmp_home)
+        monkeypatch.setattr(time, "time", lambda: 1000.0)
+        engine._last_extract_at = 1000.0
+        assert engine._should_extract("conteúdo grande o suficiente aqui", "resposta enorme") is False
+        engine._last_extract_at = 909.0
+        assert engine._should_extract("conteúdo grande o suficiente aqui", "resposta enorme") is True
+
+    def test_first_turn_always_extracts(self, tmp_home):
+        engine = self.make_engine(tmp_home)
+        engine._last_extract_at = 0.0
+        assert engine._should_extract("meu código não compila de novo", "nossa, de novo") is True
+
+
+class TestRateLimitCooldown:
+    def test_429_sets_cooldown_and_throttles_next_attempt(self, monkeypatch):
+        sleeps: list[float] = []
+        monkeypatch.setattr(time, "sleep", lambda s: sleeps.append(s))
+        calls = {"n": 0}
+
+        def handler(request):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return httpx.Response(429, text="rate limited")
+            return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+        client = LLMClient("groq", "k", "m", "https://x.test/v1",
+                           transport=httpx.MockTransport(handler))
+        assert client.generate([Message("user", "hi")]) == "ok"
+        assert calls["n"] == 2
+        assert client.in_cooldown() is True
+        assert any(s > 15.0 for s in sleeps)
+
+    def test_429_in_stream_sets_cooldown(self, monkeypatch):
+        sleeps: list[float] = []
+        monkeypatch.setattr(time, "sleep", lambda s: sleeps.append(s))
+
+        def handler(request):
+            return httpx.Response(429, text="TPM limit hit")
+
+        client = LLMClient("groq", "k", "m", "https://x.test/v1",
+                           transport=httpx.MockTransport(handler))
+        with pytest.raises(ProviderError) as ei:
+            list(client.stream([Message("user", "hi")]))
+        assert ei.value.status == 429
+        assert client.in_cooldown() is True
+
+    def test_cooldown_expires(self, monkeypatch):
+        monkeypatch.setattr(time, "sleep", lambda *_: None)
+
+        def handler(request):
+            return httpx.Response(429, text="limited")
+
+        client = LLMClient("groq", "k", "m", "https://x.test/v1",
+                           transport=httpx.MockTransport(handler))
+        with pytest.raises(ProviderError):
+            client.generate([Message("user", "hi")])
+        assert client.in_cooldown() is True
+        client._cooldown_until = time.time() - 1.0
+        assert client.in_cooldown() is False
+
+
+class TestMemoryPromptFitting:
+    def test_fitting_keeps_disk_intact_and_reports_omissions(self, tmp_home):
+        mem = MemoryManager(tmp_home / "data")
+        for i in range(60):
+            mem.append("user", f"- prefers tema{i}{i}")  # long line, dominates budget
+        before = mem.read("user")
+        note: list[str] = []
+        idx = 60 // 2
+        ctx = mem.relevant_memories(f"lembra do tema{idx}{idx}", char_budget=2500,
+                                    debug_note=note)
+        assert "lembra" not in before  # sanity: disk never contained the query
+        assert mem.read("user") == before  # disk untouched
+        assert f"prefers tema{idx}{idx}" in ctx  # the matching line survives
+        assert any("user.md" in n and "on disk" in n for n in note)
+
+    def test_no_fitting_needed_when_small(self, tmp_home):
+        mem = MemoryManager(tmp_home / "data")
+        mem.write("user", "# user\n\n- gosta de café")
+        ctx = mem.relevant_memories("café", char_budget=2500)
+        assert "gosta de café" in ctx

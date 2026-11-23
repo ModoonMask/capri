@@ -37,9 +37,23 @@ class ConversationLog:
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-    def window(self, max_messages: int) -> list[dict[str, str]]:
-        return [{"role": e["role"], "content": e["content"]}
-                for e in self.entries[-max_messages:]]
+    def window(self, max_messages: int, max_chars: int | None = None) -> list[dict[str, str]]:
+        """Newest-first budgeting: recent messages win, oldest drop off first.
+
+        The full log stays on disk; only what enters the prompt is capped.
+        Older continuity flows back in via the episodic memory retrieval,
+        which is exactly what the scoring in MemoryManager is for.
+        """
+        picked: list[dict[str, str]] = []
+        used = 0
+        for entry in reversed(self.entries):
+            if len(picked) >= max(1, max_messages):
+                break
+            if max_chars is not None and picked and used + len(entry["content"]) > max_chars:
+                break
+            picked.append({"role": entry["role"], "content": entry["content"]})
+            used += len(entry["content"])
+        return list(reversed(picked))
 
     def last_exchange(self) -> tuple[str, str] | None:
         """(last user msg, last assistant msg) for the extraction pass."""

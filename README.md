@@ -75,7 +75,9 @@ tests/            36 tests: config, emotion, memory, providers, autonomy, chat
   your message + recency + importance; only the best few enter the prompt
   (bounded by `context.memory_char_budget`), never the whole database.
 - **Selective updates:** after each turn, a cheap background LLM call proposes
-  memory writes (facts / relationship notes / one episode) with deduplication.
+  memory writes (facts / relationship notes / one episode) with deduplication,
+  throttled to at most one call per `memory_extract_min_interval_seconds` and
+  skipped for tiny small-talk turns.
   Boring small talk saves nothing.
 - **Editing:** all files are plain Markdown — edit them any time; changes apply
   on the next message, no restart.
@@ -121,6 +123,12 @@ the settings panel. Summary of keys:
 | `autonomy.*` | initiative schedule & guards |
 | `appearance.*` | accent color, opacity, always-on-top |
 | `context.*` | history length and prompt budgets |
+
+Useful `context.*` keys: `max_history_messages` (turn cap), `history_char_budget`
+(chars of recent chat sent per request, oldest dropped first),
+`memory_char_budget` (chars of retrieved memory),
+`memory_extract_min_interval_seconds` (minimum spacing between background
+memory-extraction calls).
 
 API keys are **never hardcoded** and are read in this order:
 environment variable → settings panel → none (auth error shown in chat).
