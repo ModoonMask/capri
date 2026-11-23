@@ -1,0 +1,3 @@
+# Capri runtime dependencies
+PySide6>=6.6
+httpx>=0.27

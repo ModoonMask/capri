@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Runtime state (Capri regenerates these; the templates in data/ stay)
+data/memory/state.json
+data/memory/episodes.jsonl
+data/memory/conversation-*.jsonl
+
+# Local secrets / packaging
+.env
+dist/
+build/

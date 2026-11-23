@@ -1,0 +1,17 @@
+{
+  "provider": "groq",
+  "api_keys": {},
+  "model": "",
+  "temperature": 0.9,
+  "max_tokens": 512,
+  "stream": true,
+  "_note": "api_keys stores keys ONLY if you paste them into the settings panel; environment variables (GROQ_API_KEY, MISTRAL_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY) always take precedence and are preferred. Leave api_keys empty to keep keys out of files entirely.",
+  "autonomy": {
+    "enabled": true,
+    "min_interval_minutes": 45,
+    "max_interval_minutes": 150,
+    "quiet_hours": [23, 8],
+    "idle_minutes_before_proactive": 20,
+    "cooldown_minutes": 30
+  }
+}
