@@ -35,6 +35,7 @@ class SettingsDialog(QDialog):
         root = QVBoxLayout(self)
         tabs = QTabWidget()
         tabs.addTab(self._model_tab(), "AI model")
+        tabs.addTab(self._voice_vision_tab(), "Voice & vision")
         tabs.addTab(self._autonomy_tab(), "Initiative")
         tabs.addTab(self._appearance_tab(), "Appearance")
         root.addWidget(tabs, 1)
@@ -101,6 +102,72 @@ class SettingsDialog(QDialog):
     def _autostart_supported() -> bool:
         import sys
         return sys.platform in ("win32",) or sys.platform.startswith("linux")
+
+    def _voice_vision_tab(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
+        v = self.cfg.section("voice")
+        vis = self.cfg.section("vision")
+
+        self.voice_enabled = QCheckBox("enable Capri's voice (speaks her replies)")
+        self.voice_enabled.setChecked(bool(v.get("enabled", False)))
+        form.addRow("", self.voice_enabled)
+
+        self.tts_combo = QComboBox()
+        for eng, label in (("edge_tts", "edge-tts (free, online)"), ("off", "off")):
+            self.tts_combo.addItem(label, eng)
+        self.tts_combo.setCurrentIndex(max(0, self.tts_combo.findData(v.get("tts_engine", "edge_tts"))))
+        form.addRow("Speech engine", self.tts_combo)
+
+        self.voice_name_edit = QLineEdit()
+        self.voice_name_edit.setPlaceholderText("empty = pt-BR voice picked from chat language")
+        self.voice_name_edit.setText(str(v.get("voice", "")))
+        form.addRow("TTS voice", self.voice_name_edit)
+
+        self.stt_combo = QComboBox()
+        for b, label in (("groq_api", "Whisper API (Groq, needs key)"), ("local_whisper", "faster-whisper local (CPU)")):
+            self.stt_combo.addItem(label, b)
+        self.stt_combo.setCurrentIndex(max(0, self.stt_combo.findData(v.get("stt_backend", "groq_api"))))
+        form.addRow("Speech recognition", self.stt_combo)
+
+        self.ptt_edit = QLineEdit()
+        self.ptt_edit.setPlaceholderText("f9")
+        self.ptt_edit.setText(str(v.get("push_to_talk_key", "f9")))
+        form.addRow("Push-to-talk key", self.ptt_edit)
+
+        self.vad_check = QCheckBox("auto-listen when I speak (VAD) — mutes mic while she talks")
+        self.vad_check.setChecked(bool(v.get("vad_enabled", False)))
+        form.addRow("", self.vad_check)
+
+        form.addRow(QLabel(""))
+        self.vision_check = QCheckBox("let Capri see my screen (attached when I speak)")
+        self.vision_check.setChecked(bool(vis.get("enabled", False)))
+        form.addRow("", self.vision_check)
+
+        self.monitor_spin = QSpinBox()
+        self.monitor_spin.setRange(1, 8)
+        self.monitor_spin.setValue(int(vis.get("monitor", 1)))
+        form.addRow("Monitor", self.monitor_spin)
+
+        self.vint_spin = QSpinBox()
+        self.vint_spin.setRange(3, 300)
+        self.vint_spin.setSuffix(" s")
+        self.vint_spin.setValue(int(vis.get("interval_s", 12)))
+        form.addRow("Screen check every", self.vint_spin)
+
+        self.vwidth_spin = QSpinBox()
+        self.vwidth_spin.setRange(256, 1920)
+        self.vwidth_spin.setSuffix(" px")
+        self.vwidth_spin.setValue(int(vis.get("max_width", 768)))
+        form.addRow("Screenshot width", self.vwidth_spin)
+
+        note = QLabel(
+            "Screenshots are sent only with your message to a vision-capable model\n"
+            "(e.g. Gemini) and are never saved anywhere. Needs the chat provider\n"
+            "that supports images — on others she answers text-only and logs it.")
+        note.setStyleSheet("color: #b9a9c4;")
+        form.addRow("", note)
+        return w
 
     def _autonomy_tab(self) -> QWidget:
         w = QWidget()
@@ -222,6 +289,19 @@ class SettingsDialog(QDialog):
         self.cfg.data["temperature"] = float(self.temp_spin.value())
         self.cfg.data["max_tokens"] = int(self.maxtok_spin.value())
         self.cfg.data["stream"] = bool(self.stream_check.isChecked())
+
+        v = self.cfg.section("voice")
+        v["enabled"] = bool(self.voice_enabled.isChecked())
+        v["tts_engine"] = self.tts_combo.currentData()
+        v["voice"] = self.voice_name_edit.text().strip()
+        v["stt_backend"] = self.stt_combo.currentData()
+        v["push_to_talk_key"] = self.ptt_edit.text().strip() or "f9"
+        v["vad_enabled"] = bool(self.vad_check.isChecked())
+        vis = self.cfg.section("vision")
+        vis["enabled"] = bool(self.vision_check.isChecked())
+        vis["monitor"] = int(self.monitor_spin.value())
+        vis["interval_s"] = int(self.vint_spin.value())
+        vis["max_width"] = int(self.vwidth_spin.value())
 
         a = self.cfg.section("autonomy")
         a["enabled"] = bool(self.auto_check.isChecked())

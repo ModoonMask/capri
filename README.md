@@ -108,6 +108,41 @@ affection. Guards, all configurable in Settings → Initiative:
 
 ---
 
+## Voice & vision (streamer mode)
+
+Capri can hear you, see your screen, and answer by speaking — install the extras
+from `requirements.txt` (already listed: `edge-tts`, `sounddevice`, `soundfile`,
+`keyboard`, `mss`, `Pillow`):
+
+```
+pip install -r requirements.txt
+```
+
+- **Speak her replies:** toggle the **🎤** button in her chat window (or
+  Settings → Voice & vision). Default engine is edge-tts (free, needs
+  internet); she talks sentence by sentence as the reply streams, and the mic
+  goes quiet while she speaks.
+- **You talk, she listens:** hold the **push-to-talk key** (default `F9`) and
+  release — your speech is transcribed and sent like typed text. Pressing the
+  key while she's talking interrupts her. Optionally enable VAD in Settings
+  for hands-free (auto-transcribes when you speak; still mutes while she
+  talks). Requires the optional `keyboard` and `sounddevice` packages.
+- **She sees your game:** toggle **👁** (or Settings → Voice & vision). Each
+  time YOU speak, a screenshot of the chosen monitor (downscaled ~768 px JPEG)
+  is attached to that single request — never saved to disk, history, or
+  memory. For images to reach the model, pick a vision-capable one: Gemini
+  works out of the box; on providers without vision she replies text-only and
+  logs that the screenshot was dropped.
+- **Speech recognition backends:** `groq_api` (default; uses your existing
+  `$GROQ_API_KEY`, no extra install) or `local_whisper` via the optional
+  `faster-whisper` package ([pip install faster-whisper](https://pypi.org/project/faster-whisper/)
+  — first run downloads the small model, then it works fully offline on CPU).
+
+Windows notes: allow microphone access for Python when prompted; `keyboard`
+may ask permission on first run; edge-tts uses your internet connection.
+
+---
+
 ## Configuration
 
 Everything is in `~/.capri/config.json` (created on first run) or edited live in
@@ -123,6 +158,8 @@ the settings panel. Summary of keys:
 | `autonomy.*` | initiative schedule & guards |
 | `appearance.*` | accent color, opacity, always-on-top |
 | `context.*` | history length and prompt budgets |
+| `voice.*` | speech: `enabled`, `tts_engine`, `voice`, `stt_backend`, `push_to_talk_key`, `vad_enabled` |
+| `vision.*` | screen view: `enabled`, `monitor`, `interval_s`, `max_width`, `jpeg_quality` |
 
 Useful `context.*` keys: `max_history_messages` (turn cap), `history_char_budget`
 (chars of recent chat sent per request, oldest dropped first),

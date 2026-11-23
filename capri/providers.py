@@ -11,6 +11,7 @@ provider sends them).
 from __future__ import annotations
 
 import json
+import sys
 import time
 from typing import Any, Iterable, Iterator
 
@@ -23,6 +24,40 @@ MAX_RETRIES = 3
 REQUEST_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 DEFAULT_429_COOLDOWN_SEC = 20.0
 MAX_COOLDOWN_WAIT_SEC = 30.0
+
+# Providers/models that accept inline images (OpenAI-style image_url parts).
+# Gemini is the primary supported path; a few capable models on other
+# providers are recognized by name so the door stays open.
+VISION_MODEL_HINTS = ("gemini", "vision", "llava", "llama-4", "gpt-4o")
+
+
+def supports_vision(provider: str, model: str) -> bool:
+    if provider == "gemini":
+        return True
+    model_l = (model or "").lower()
+    return any(hint in model_l for hint in VISION_MODEL_HINTS)
+
+
+def strip_images(messages: list[Message], provider: str, model: str) -> list[Message]:
+    """Replace multimodal content with its text part when the target model
+    cannot see images. Never raises; logs so the user knows why she 'isn't
+    looking' on non-vision providers."""
+    if supports_vision(provider, model):
+        return messages
+    dropped = 0
+    safe: list[Message] = []
+    for msg in messages:
+        content = msg["content"]
+        if isinstance(content, list):
+            dropped += 1
+            text = " ".join(part.get("text", "") for part in content
+                            if part.get("type") == "text")
+            msg = dict(msg, content=text)
+        safe.append(msg)
+    if dropped:
+        print(f"[capri] {provider}/{model} does not support vision; "
+              f"{dropped} screenshot(s) not sent (text-only turn)", file=sys.stderr)
+    return safe
 
 
 class ProviderError(RuntimeError):
@@ -105,7 +140,7 @@ class LLMClient:
                  max_tokens: int | None = None) -> dict[str, Any]:
         return {
             "model": self.model,
-            "messages": list(messages),
+            "messages": strip_images(list(messages), self.provider, self.model),
             "temperature": self.temperature if temperature is None else temperature,
             "max_tokens": self.max_tokens if max_tokens is None else max_tokens,
             "stream": stream,

@@ -35,9 +35,16 @@ class Personality:
 
     def system_prompt(self, mood_line: str, memory_context: str,
                       language: str = "pt-BR",
-                      recent_openers: list[str] | None = None) -> str:
+                      recent_openers: list[str] | None = None,
+                      sees_screen: bool = False) -> str:
         parts = [self.get("personality"), self.get("behavior"), self.get("interests")]
         parts.append(f"# Current emotional state\n\n{mood_line}")
+        if sees_screen:
+            parts.append(
+                "# Visão\n\n"
+                "Nesta mensagem vai uma imagem da tela do usuário AGORA. Você está "
+                "olhando por cima do ombro dele: comente o que for relevante para "
+                "vocês dois, sem narrar tudo (regras de 'Modo voz' em behavior).")
         if memory_context:
             parts.append(f"# What you remember (retrieved for this message — weave in naturally, don't recite)\n\n{memory_context}")
         if recent_openers:

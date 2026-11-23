@@ -32,6 +32,25 @@ _MARKDOWN = re.compile(r"[*_`~#>`]|\[([^\]]*)\]\([^)]*\)|https?://\S+")
 _EMOJIISH = re.compile("[\U0001F000-\U0001FAFF\u2190-\u21FF\u2600-\u27BF\uFE0F]")
 
 
+def _lang_to_edge_voice(language: str) -> str:
+    """Map a chat language (BCP-ish or display name) to a neural voice."""
+    table = {
+        "pt-BR": "pt-BR-FranciscaNeural",
+        "pt": "pt-BR-FranciscaNeural",
+        "English": "en-US-AriaNeural",
+        "en": "en-US-AriaNeural",
+        "Español": "es-ES-ElviraNeural",
+        "es": "es-ES-ElviraNeural",
+        "Français": "fr-FR-DeniseNeural",
+        "fr": "fr-FR-DeniseNeural",
+        "Deutsch": "de-DE-KatjaNeural",
+        "de": "de-DE-KatjaNeural",
+        "Italiano": "it-IT-ElsaNeural",
+        "it": "it-IT-ElsaNeural",
+    }
+    return table.get(language.strip(), "")
+
+
 def spoken_text(text: str) -> str:
     """Clean chat formatting out of text before a speech engine reads it."""
     text = _MARKDOWN.sub(lambda m: m.group(1) or " ", text)

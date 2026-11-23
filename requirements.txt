@@ -1,3 +1,16 @@
 # Capri runtime dependencies
 PySide6>=6.6
 httpx>=0.27
+pytest>=8.0
+
+# Voice
+edge-tts>=6.1          # TTS engine (free Microsoft neural voices)
+sounddevice>=0.4.6     # audio playback + microphone input
+soundfile>=0.12        # decodes the mp3 edge-tts produces
+keyboard>=0.13         # push-to-talk global key capture (Windows/Linux)
+# faster-whisper>=0.10 # OPTIONAL: uncomment for local speech-to-text (CPU);
+#                      otherwise Capri uses Groq's hosted Whisper API
+
+# Vision
+mss>=9.0               # fast screen capture
+Pillow>=10.0           # downscale + JPEG encoding

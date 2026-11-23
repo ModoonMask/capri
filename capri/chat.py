@@ -21,6 +21,7 @@ from .emotion import EmotionState
 from .memory import MemoryManager, VALID_EPISODE_KINDS
 from .personality import Personality
 from .providers import LLMClient, Message, user, assistant, make_client
+from .vision import image_parts
 
 EXTRACT_PROMPT = """You maintain the memory of a fictional AI companion named Capri who is chatting with her user.
 
@@ -69,7 +70,7 @@ class ChatController:
             char_budget=int(ctx_cfg.get("memory_char_budget", 2500)),
         )
 
-    def build_prompt(self, user_message: str) -> str:
+    def build_prompt(self, user_message: str, sees_screen: bool = False) -> str:
         mood_line = self.emotion.prompt_line()
         memory_context = self.memory_context(user_message)
         return self.personality.system_prompt(
@@ -77,6 +78,7 @@ class ChatController:
             memory_context,
             language=self.cfg.get("language", "pt-BR"),
             recent_openers=self._recent_openers(),
+            sees_screen=sees_screen,
         )
 
     def _recent_openers(self, n: int = 4) -> list[str]:
@@ -92,20 +94,30 @@ class ChatController:
                 break
         return list(reversed(openers))
 
-    def respond(self, user_message: str) -> Iterator[str]:
-        """Stream Capri's reply for one user turn, then update state in background."""
+    def respond(self, user_message: str, image: bytes | None = None) -> Iterator[str]:
+        """Stream Capri's reply for one user turn, then update state in background.
+
+        `image` is a JPEG screenshot of the user's screen (streamer mode). It
+        is attached only to the outgoing request as an inline image part; the
+        conversation history stores the text only, never pixels.
+        """
         self.emotion.decay()
         self.emotion.apply_trigger(user_message)
 
-        prompt = self.build_prompt(user_message)
+        prompt = self.build_prompt(user_message, sees_screen=image is not None)
         hist_cfg = self.cfg.section("context")
         history = self.history.window(
             int(hist_cfg.get("max_history_messages", 30)) - 1,
             max_chars=int(hist_cfg.get("history_char_budget", 3000)),
         )
-        messages = [Message("system", prompt), *history, user(user_message)]
+        if image:
+            user_content = image_parts(user_message, image)
+        else:
+            user_content = user_message
+        messages = [Message("system", prompt), *history,
+                    Message("user", user_content)]
 
-        self.history.append("user", user_message)
+        self.history.append("user", user_message)   # pixels never enter history
 
         collected: list[str] = []
         for delta in self.client.stream(messages):

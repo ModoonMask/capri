@@ -49,6 +49,8 @@ class ChatBubble(QLabel):
 
 class ChatWindow(QWidget, FramelessMixin):
     send_message = Signal(str)
+    voice_toggle = Signal(bool)
+    vision_toggle = Signal(bool)
 
     def __init__(self, accent: str = "#ff4f8b"):
         super().__init__()
@@ -110,6 +112,21 @@ class ChatWindow(QWidget, FramelessMixin):
         title.setStyleSheet("background: transparent; font-weight: 600; letter-spacing: 1px;")
         layout.addWidget(title)
         layout.addStretch(1)
+
+        self.voice_btn = QPushButton("🎤 off")
+        self.vision_btn = QPushButton("👁 off")
+        for btn in (self.voice_btn, self.vision_btn):
+            btn.setCheckable(True)
+            btn.setFixedHeight(24)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet("background: transparent; border: none; padding: 0 4px;")
+        self.voice_btn.setToolTip("voice: speak replies + push-to-talk mic")
+        self.vision_btn.setToolTip("vision: she sees your screen when you talk")
+        self.voice_btn.toggled.connect(self.voice_toggle.emit)
+        self.vision_btn.toggled.connect(self.vision_toggle.emit)
+        layout.addWidget(self.voice_btn)
+        layout.addWidget(self.vision_btn)
+
         hide_btn = QPushButton("—")
         hide_btn.setFixedSize(26, 24)
         hide_btn.setCursor(Qt.PointingHandCursor)
@@ -128,6 +145,12 @@ class ChatWindow(QWidget, FramelessMixin):
 
     def is_busy(self) -> bool:
         return self._worker is not None
+
+    def set_voice_active(self, on: bool) -> None:
+        self.voice_btn.blockSignals(True)
+        self.voice_btn.setChecked(on)
+        self.voice_btn.setText("🎤 on" if on else "🎤 off")
+        self.voice_btn.blockSignals(False)
 
     def add_bubble(self, text: str, from_capri: bool) -> None:
         bubble = ChatBubble(text, from_capri)
@@ -180,6 +203,12 @@ class ChatWindow(QWidget, FramelessMixin):
         worker.chunk.connect(self.stream_delta)
         worker.finished_ok.connect(lambda _: self.stream_finish())
         worker.failed.connect(self._on_failed)
+
+    def set_vision_active(self, on: bool) -> None:
+        self.vision_btn.blockSignals(True)
+        self.vision_btn.setChecked(on)
+        self.vision_btn.setText("👁 on" if on else "👁 off")
+        self.vision_btn.blockSignals(False)
 
     def _on_failed(self, message: str) -> None:
         self.stream_finish()
