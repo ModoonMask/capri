@@ -76,6 +76,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "memory_char_budget": 2500,
         "memory_extract_min_interval_seconds": 90,
     },
+    "voice": {
+        "enabled": False,            # mic + speech toggled in the companion UI
+        "tts_engine": "edge_tts",     # edge_tts | off
+        "voice": "",                 # empty = pick from config.language
+        "stt_backend": "groq_api",    # groq_api | local_whisper
+        "stt_model": "small",         # used by local_whisper (CPU-friendly)
+        "push_to_talk_key": "f9",     # hold to talk; also interrupts her speech
+        "vad_enabled": False,         # auto-transcribe when you just talk
+    },
+    "vision": {
+        "enabled": False,            # eye toggle in the companion UI
+        "monitor": 1,                 # 1-based mss monitor index
+        "interval_s": 12,             # pre-capture refresh cadence
+        "max_width": 768,
+        "jpeg_quality": 60,
+        "change_threshold": 8.0,      # 0-255 mean pixel diff for a fresh frame
+    },
 }
 
 
