@@ -66,6 +66,13 @@ class SettingsDialog(QDialog):
         self.model_combo.setCurrentText(self.cfg.model)
         form.addRow("Model", self.model_combo)
 
+        self.language_combo = QComboBox()
+        self.language_combo.setEditable(True)
+        for lang in ("pt-BR", "English", "Español", "Deutsch", "Français", "Italiano"):
+            self.language_combo.addItem(lang)
+        self.language_combo.setCurrentText(str(self.cfg.get("language", "pt-BR")))
+        form.addRow("Chat language", self.language_combo)
+
         self.temp_spin = QDoubleSpinBox()
         self.temp_spin.setRange(0.0, 2.0)
         self.temp_spin.setSingleStep(0.05)
@@ -211,6 +218,7 @@ class SettingsDialog(QDialog):
         if new_key:
             keys[pid] = new_key
         self.cfg.data["model"] = self.model_combo.currentText().strip() or PROVIDER_PRESETS[pid]["models"][0]
+        self.cfg.data["language"] = self.language_combo.currentText().strip() or "pt-BR"
         self.cfg.data["temperature"] = float(self.temp_spin.value())
         self.cfg.data["max_tokens"] = int(self.maxtok_spin.value())
         self.cfg.data["stream"] = bool(self.stream_check.isChecked())

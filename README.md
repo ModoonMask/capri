@@ -116,6 +116,7 @@ the settings panel. Summary of keys:
 | `provider` | `groq` \| `mistral` \| `gemini` \| `openrouter` |
 | `api_keys.<provider>` | optional stored key (env var wins; never required on disk) |
 | `model` | any model id for the provider |
+| `language` | chat language, e.g. `pt-BR` (default) or `English` |
 | `temperature` / `max_tokens` / `stream` | generation knobs |
 | `autonomy.*` | initiative schedule & guards |
 | `appearance.*` | accent color, opacity, always-on-top |

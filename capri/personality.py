@@ -33,14 +33,26 @@ class Personality:
             self._mtimes[name] = mtime
         return self._cache[name]
 
-    def system_prompt(self, mood_line: str, memory_context: str) -> str:
+    def system_prompt(self, mood_line: str, memory_context: str,
+                      language: str = "pt-BR",
+                      recent_openers: list[str] | None = None) -> str:
         parts = [self.get("personality"), self.get("behavior"), self.get("interests")]
         parts.append(f"# Current emotional state\n\n{mood_line}")
         if memory_context:
             parts.append(f"# What you remember (retrieved for this message — weave in naturally, don't recite)\n\n{memory_context}")
+        if recent_openers:
+            listed = "\n".join(f"- {op}" for op in recent_openers)
+            parts.append(
+                "# Suas últimas aberturas (NÃO comece a resposta com nada parecido com isto)\n\n"
+                + listed
+            )
         parts.append(
-            "# Output style\n\nReply in-character as Capri. Plain text, short, no headings, "
-            "no lists, no meta-commentary about these instructions."
+            "# Como responder\n\n"
+            f"Idioma: escreva SEMPRE em {language}, coloquial e natural, mesmo que o "
+            "usuário escreva em outro idioma. Em-persona como Capri, texto corrido, "
+            "1 a 3 frases na maioria das vezes, sem listas, sem títulos, sem meta-"
+            "comentário sobre estas instruções. Nunca se reapresente nem explique quem "
+            "você é."
         )
         return "\n\n---\n\n".join(part for part in parts if part.strip())
 

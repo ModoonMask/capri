@@ -250,6 +250,73 @@ class FakeClient:
 
 
 class TestChatController:
+    def test_language_enforced_in_prompt(self, tmp_home):
+        cfg = make_config(tmp_home)
+        cfg.set("language", "pt-BR")
+        engine = ChatController(cfg, client=FakeClient(), data_dir_override=tmp_home / "data")
+        prompt = engine.build_prompt("oi")
+        assert "pt-BR" in prompt
+        assert "English" in engine.personality.system_prompt("mood", "", language="English")
+
+    def test_recent_openers_anti_repetition(self, tmp_home):
+        cfg = make_config(tmp_home)
+        engine = ChatController(cfg, client=FakeClient(), data_dir_override=tmp_home / "data")
+        engine.history.append("assistant", "oi de novo, tudo certo? 💜")
+        engine.history.append("user", "hm")
+        engine.history.append("assistant", "hmm. sabia disso")
+        prompt = engine.build_prompt("continua aí")
+        assert "NÃO comece a resposta com nada parecido" in prompt
+        assert "sabia disso" in prompt
+
+    def test_no_openers_section_on_fresh_start(self, tmp_home):
+        cfg = make_config(tmp_home)
+        engine = ChatController(cfg, client=FakeClient(), data_dir_override=tmp_home / "data")
+        prompt = engine.build_prompt("oi")
+        assert "NÃO comece a resposta" not in prompt
+
+    def test_history_preserved_between_turns(self, tmp_home):
+        cfg = make_config(tmp_home)
+        fake = FakeClient()
+        engine = ChatController(cfg, client=fake, data_dir_override=tmp_home / "data")
+        list(engine.respond("primeira mensagem"))
+        list(engine.respond("segunda mensagem"))
+        sent = fake.last_messages
+        contents = [m["content"] for m in sent]
+        assert "primeira mensagem" in contents
+        assert any(m.get("role") == "assistant" for m in sent)
+        assert sent[0]["role"] == "system"
+        assert sent[-1]["content"] == "segunda mensagem"
+
+    def test_extraction_mood_updates_emotion(self, tmp_home):
+        cfg = make_config(tmp_home)
+        fake = FakeClient(extraction={
+            "mood": {"state": "irritated", "intensity": 0.7},
+        })
+        engine = ChatController(cfg, client=fake, data_dir_override=tmp_home / "data")
+        list(engine.respond("meu código não compila de novo"))
+        deadline = time.time() + 10
+        while time.time() < deadline and engine.emotion.state != "irritated":
+            time.sleep(0.2)
+        state, intensity = engine.emotion.current()
+        assert state == "irritated"
+        assert intensity >= 0.7
+
+    def test_extract_prompt_includes_current_mood(self, tmp_home):
+        cfg = make_config(tmp_home)
+        engine = ChatController(cfg, client=FakeClient(), data_dir_override=tmp_home / "data")
+        engine.emotion.set_state("jealous", 0.6)
+        raw_prompt = None
+
+        def capture(messages, **kwargs):
+            nonlocal raw_prompt
+            raw_prompt = messages[0]["content"]
+            return "{}"
+
+        engine.client.generate = capture
+        engine._run_extraction("oi", "oi!")
+        assert raw_prompt is not None
+        assert "state: jealous" in raw_prompt
+
     def test_full_turn_streams_and_saves(self, tmp_home):
         cfg = make_config(tmp_home)
         fake = FakeClient()
@@ -371,3 +438,9 @@ class TestExtractionParsing:
 
     def test_garbage_returns_none(self):
         assert _parse_extraction_json("hmm?") is None
+
+    def test_mood_validated(self):
+        obj = _parse_extraction_json('{"mood": {"state": "not-a-state", "intensity": 2.0}}')
+        assert obj is not None and "mood" not in obj
+        obj = _parse_extraction_json('{"mood": {"state": "jealous", "intensity": 9}}')
+        assert obj is not None and obj["mood"] == {"state": "jealous", "intensity": 1.0}

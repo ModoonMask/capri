@@ -40,9 +40,13 @@ LATEST EXCHANGE
 User: {user_msg}
 Capri: {capri_msg}
 
+CURRENT MOOD of Capri
+state: {cur_state}, intensity: {cur_intensity}
+
 Reply with ONLY a JSON object:
-{{"user_facts": ["..."], "relationship": ["..."], "memories": ["..."], "episode": {{"kind": "moment|joke|topic|milestone|followup", "summary": "...", "keywords": ["..."], "importance": 1-5}}}}
-Use empty lists and "episode": null when nothing qualifies."""
+{{"user_facts": ["..."], "relationship": ["..."], "memories": ["..."], "mood": {{"state": "happy|playful|affectionate|jealous|curious|bored|irritated|sad|vulnerable|excited", "intensity": 0.0-1.0}}, "episode": {{"kind": "moment|joke|topic|milestone|followup", "summary": "...", "keywords": ["..."], "importance": 1-5}}}}
+Use empty lists and "episode": null when nothing qualifies.
+For "mood": always return one; move GENTLY from the current mood based on how this exchange would emotionally land on Capri (e.g. another AI or another girl mentioned → jealous; absence ended → affectionate; accomplishment shared → happy/excited). Intensity 0.2-0.5 for subtle lands, 0.6-0.9 for strong ones."""
 
 
 class ChatController:
@@ -66,7 +70,25 @@ class ChatController:
     def build_prompt(self, user_message: str) -> str:
         mood_line = self.emotion.prompt_line()
         memory_context = self.memory_context(user_message)
-        return self.personality.system_prompt(mood_line, memory_context)
+        return self.personality.system_prompt(
+            mood_line,
+            memory_context,
+            language=self.cfg.get("language", "pt-BR"),
+            recent_openers=self._recent_openers(),
+        )
+
+    def _recent_openers(self, n: int = 5) -> list[str]:
+        """First line of her last n replies - context for anti-repetition."""
+        openers: list[str] = []
+        for entry in reversed(self.history.entries):
+            if entry["role"] != "assistant":
+                continue
+            first = entry["content"].strip().split("\n")[0][:80]
+            if first:
+                openers.append(first)
+            if len(openers) >= n:
+                break
+        return list(reversed(openers))
 
     def respond(self, user_message: str) -> Iterator[str]:
         """Stream Capri's reply for one user turn, then update state in background."""
@@ -131,11 +153,14 @@ class ChatController:
 
     def _run_extraction(self, user_message: str, reply: str) -> dict | None:
         try:
+            cur_state, cur_intensity = self.emotion.current()
             prompt = EXTRACT_PROMPT.format(
                 user_md=self.memory.read("user")[:1500] or "(empty)",
                 rel_md=self.memory.read("relationship")[:1500] or "(empty)",
                 user_msg=user_message[:1200],
                 capri_msg=reply[:1200],
+                cur_state=cur_state,
+                cur_intensity=cur_intensity,
             )
             raw = self.client.generate([Message("system", prompt)], temperature=0.2, max_tokens=400)
             return _parse_extraction_json(raw)
@@ -144,6 +169,8 @@ class ChatController:
 
 
 def _parse_extraction_json(raw: str) -> dict | None:
+    from .emotion import STATES
+
     start, end = raw.find("{"), raw.rfind("}")
     if start == -1 or end <= start:
         return None
@@ -160,4 +187,20 @@ def _parse_extraction_json(raw: str) -> dict | None:
         else:
             kind = str(ep.get("kind", "moment"))
             ep["kind"] = kind if kind in VALID_EPISODE_KINDS else "moment"
+    mood = obj.get("mood")
+    if isinstance(mood, dict):
+        try:
+            intensity = float(mood.get("intensity", 0.4))
+        except (TypeError, ValueError):
+            intensity = 0.4
+        parsed_mood = {
+            "state": str(mood.get("state", "")),
+            "intensity": max(0.05, min(1.0, intensity)),
+        }
+        if parsed_mood["state"] in STATES:
+            obj["mood"] = parsed_mood
+        else:
+            obj.pop("mood", None)
+    else:
+        obj.pop("mood", None)
     return obj

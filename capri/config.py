@@ -52,6 +52,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "provider": "groq",
     "api_keys": {},          # provider -> key (leave empty to use env vars)
     "model": "",             # empty = first preset model of the provider
+    "language": "pt-BR",     # chat language, e.g. "pt-BR", "English"
     "temperature": 0.9,
     "max_tokens": 512,
     "stream": True,
@@ -70,8 +71,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "cooldown_minutes": 30,
     },
     "context": {
-        "max_history_messages": 24,
-        "system_prompt_char_budget": 6000,
+        "max_history_messages": 30,
         "memory_char_budget": 2500,
     },
 }
